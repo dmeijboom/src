@@ -1,5 +1,6 @@
 use std::{
     io::Write,
+    path::PathBuf,
     process::{Command, Stdio},
 };
 
@@ -50,19 +51,25 @@ impl<'c> SshSigner<'c> {
 
 impl Signer for SshSigner<'_> {
     fn sign(&self, content: &git2::Buf) -> Result<String, Box<dyn std::error::Error>> {
-        // Aparently, we have to write this to a file
+        // If the signing key is a public key (not a path) we have to write it to a file
         let mut tmp = NamedTempFile::new()?;
         tmp.write_all(self.signing_key.as_bytes())?;
         tmp.flush()?;
 
-        let program = self.program.unwrap_or("ssh");
+        let program = self.program.unwrap_or("ssh-keygen");
+        let signing_key_path: PathBuf = self.signing_key.into();
 
         // See: https://github.com/git/git/blob/34b6ce9b30747131b6e781ff718a45328aa887d0/gpg-interface.c#L1072
         let mut child = Command::new(program)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .args(["-Y", "sign", "-n", "git", "-f"])
-            .arg(tmp.path())
+            .arg(if signing_key_path.exists() {
+                &signing_key_path
+            } else {
+                tmp.path()
+            })
             .spawn()?;
 
         let stdin = child.stdin.as_mut().unwrap();
